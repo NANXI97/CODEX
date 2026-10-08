@@ -1,0 +1,11 @@
+import {useEffect,useState,type ReactNode} from 'react';
+import './AccessGate.css';
+interface Session {enabled:boolean;authenticated:boolean}
+export function AccessGate({children}:{children:ReactNode}){
+ const [session,setSession]=useState<Session>(),[password,setPassword]=useState(''),[error,setError]=useState(''),[busy,setBusy]=useState(false);
+ useEffect(()=>{let alive=true;const check=()=>fetch('/api/auth/session',{cache:'no-store'}).then(r=>{if(!r.ok)throw new Error();return r.json();}).then((value:Session)=>{if(alive){setSession(value);setError('');}}).catch(()=>{if(alive)setError('工作室暂时无法连接，请稍后重试。');});void check();const timer=setInterval(check,60000);const focus=()=>void check();window.addEventListener('focus',focus);return()=>{alive=false;clearInterval(timer);window.removeEventListener('focus',focus);};},[]);
+ async function login(){if(busy)return;setBusy(true);setError('');try{const r=await fetch('/api/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({password})});const value=await r.json();if(!r.ok)throw new Error(value.error??'登录失败。');setPassword('');setSession({enabled:true,authenticated:true});}catch(e){setError(e instanceof Error?e.message:'连接失败，请重试。');}finally{setBusy(false);}}
+ async function logout(){setBusy(true);try{const r=await fetch('/api/auth/logout',{method:'POST',headers:{'Content-Type':'application/json'},body:'{}'});if(!r.ok)throw new Error();setSession({enabled:true,authenticated:false});}catch{setError('退出失败，请重试。');}finally{setBusy(false);}}
+ if(session?.authenticated)return <>{session.enabled&&<div className="office-session"><span>私人工作室</span>{error&&<span role="alert">{error}</span>}<button type="button" onClick={()=>void logout()} disabled={busy}>退出登录</button></div>}{children}</>;
+ return <div className="access-page"><section className="access-card"><h1>学姐通信<span>XUEJIE MOBILE</span></h1><p>AI 团队工作室</p>{session?<form onSubmit={e=>{e.preventDefault();void login();}}><label htmlFor="office-password">工作室登录密码</label><input id="office-password" type="password" autoComplete="current-password" value={password} maxLength={256} onChange={e=>setPassword(e.target.value)} required/><button disabled={busy||!password}>{busy?'登录中…':'进入工作室'}</button></form>:<p role="status">正在连接工作室…</p>}{error&&<p role="alert">{error}</p>}</section></div>;
+}

@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: xuejie-mobile-office
+    runtime: node
+    plan: starter
+    region: singapore
+    branch: web-access
+    rootDir: xuejie-mobile-pixel-agent-office
+    buildCommand: npm ci --include=dev --no-audit --no-fund && npm run build && npm prune --omit=dev --no-audit --no-fund
+    startCommand: npm start
+    healthCheckPath: /healthz
+    autoDeployTrigger: "off"
+    disk:
+      name: office-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: NODE_VERSION
+        value: 24.19.0
+      - key: NODE_ENV
+        value: production
+      - key: API_HOST
+        value: 0.0.0.0
+      - key: TASK_DB_PATH
+        value: /var/data/tasks.sqlite
+      - key: UPLOAD_DIR
+        value: /var/data/uploads
+      - key: AUTH_DB_PATH
+        value: /var/data/access.sqlite
+      - key: APP_PASSWORD
+        sync: false
+      - key: LLM_API_KEY
+        sync: false
+      - key: LLM_PROVIDER
+        value: openai-responses
+      - key: LLM_BASE_URL
+        value: https://api.openai.com/v1
+      - key: LLM_MODEL
+        value: gpt-6-luna
+      - key: LLM_MAX_TOKENS
+        value: "4096"
+      - key: LLM_TIMEOUT_MS
+        value: "60000"

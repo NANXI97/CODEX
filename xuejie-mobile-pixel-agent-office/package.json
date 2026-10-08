@@ -6,8 +6,9 @@
   "scripts": {
     "sprites": "node scripts/extract-sprites.mjs",
     "dev": "vite --host 0.0.0.0",
-    "build": "tsc -b && tsc -p server/tsconfig.json && vite build",
-    "test": "tsx --test src/office/navigation.test.ts server/runtime.test.ts server/orchestration.test.ts server/tools.test.ts && node scripts/verify-sprites.mjs",
+    "build": "tsc -b && tsc -p server/tsconfig.json && vite build && vite build --config vite.server.config.ts",
+    "start": "node dist-server/index.js",
+    "test": "tsx --test src/office/navigation.test.ts server/runtime.test.ts server/orchestration.test.ts server/tools.test.ts server/access.test.ts && node scripts/verify-sprites.mjs",
     "server": "node --env-file-if-exists=.env --import tsx server/index.ts"
   },
   "dependencies": {
