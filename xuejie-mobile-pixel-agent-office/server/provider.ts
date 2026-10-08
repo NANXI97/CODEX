@@ -8,8 +8,10 @@ export function readProviderConfig():ProviderConfig|null {
  if(!process.env.LLM_API_KEY)return null;
  if((process.env.LLM_PROVIDER??'openai-responses')!=='openai-responses')throw new Error('Unsupported LLM_PROVIDER; use openai-responses');
  const base=new URL(process.env.LLM_BASE_URL??'https://api.openai.com/v1');if(base.protocol!=='https:'||base.username||base.password||base.search||base.hash)throw new Error('LLM_BASE_URL must be a clean HTTPS URL');
- const maxTokens=Number(process.env.LLM_MAX_TOKENS??4096),timeoutMs=Number(process.env.LLM_TIMEOUT_MS??60000);
- if(!Number.isInteger(maxTokens)||maxTokens<64||maxTokens>16384||!Number.isInteger(timeoutMs)||timeoutMs<1000||timeoutMs>120000)throw new Error('Invalid LLM limits');
+ const maxTokens=Number(process.env.LLM_MAX_TOKENS??4096),configuredTimeout=Number(process.env.LLM_TIMEOUT_MS??60000);
+ if(!Number.isInteger(maxTokens)||maxTokens<64||maxTokens>16384)throw new Error('Invalid LLM_MAX_TOKENS');
+ const timeoutMs=Number.isInteger(configuredTimeout)&&configuredTimeout>=1000&&configuredTimeout<=120000?configuredTimeout:60000;
+ if(timeoutMs!==configuredTimeout)console.warn('LLM_TIMEOUT_MS is invalid; using the default 60000 ms.');
  return {baseUrl:base.href.replace(/\/$/,''),model:process.env.LLM_MODEL??'gpt-6-luna',apiKey:process.env.LLM_API_KEY,maxTokens,timeoutMs};
 }
 // Adapter boundary: runtime never depends on HTTP format or a particular vendor.

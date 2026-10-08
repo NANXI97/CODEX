@@ -1,0 +1,6 @@
+.workflow{margin-top:20px;border-top:1px solid #e3e8eb;padding-top:8px;font-size:12px}
+.workflow ol{padding-left:24px}.workflow li{padding:10px 0;border-bottom:1px solid #edf0f2}
+.workflow li>div{display:flex;flex-wrap:wrap;justify-content:space-between;gap:8px}
+.workflow li strong{font-size:12px}.workflow li span,.workflow li small{color:#7b8999}
+.workflow li p{margin:8px 0;line-height:1.6}.workflow li[data-step-status=failed]>div span{color:#bd4242}
+.workflow li[data-step-status=running]>div span{color:#38856f}.workflow details{margin-top:8px}
