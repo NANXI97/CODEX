@@ -6,6 +6,7 @@ import {join} from 'node:path';
 import {spawn} from 'node:child_process';
 import {createServer} from 'node:http';
 import {MockAgent} from 'undici';
+import {PNG} from 'pngjs';
 import {FileStore,parseSheets,aggregateRange,selectRange} from './files';
 import {ToolRegistry,completeWithTools} from './tools';
 import {publicAddress,publicUrl,WebReader} from './web';
@@ -14,6 +15,7 @@ import {TaskStore} from './store';
 import {AgentRuntime} from './runtime';
 import {createApp} from './app';
 import {workbook} from '../tests/file-fixture';
+import {documentInput} from './documents';
 import type {AgentContext,LLMProvider,ToolCallRecord} from './types';
 const finalSchema={type:'object',properties:{status:{type:'string',enum:['completed','needs_input']},output:{type:'string'},question:{type:'string'}},required:['status','output','question'],additionalProperties:false};
 const result=(output:string)=>JSON.stringify({status:'completed',output,question:''});
@@ -33,6 +35,65 @@ test('uploads preserve bytes and metadata after reopen; rejects unsupported file
   for(const name of ['../key.txt','x.pdf','x.xls','bad\\x.txt'])await assert.rejects(()=>files.upload(name,Buffer.from('x')),ProviderError);
   await assert.rejects(()=>files.upload('x.txt',Buffer.from([255,0])),ProviderError);
   writeFileSync(join(dir,file.id+'.bin'),'changed');assert.throws(()=>files.bytes(file),ProviderError);
+ }finally{cleanup();}
+});
+test('policy images and PDFs retain actual bytes; reject wrong formats, encryption and huge images',async()=>{
+ const {dir,files,cleanup}=setup();try{
+  const image=PNG.sync.write(new PNG({width:2,height:2}));
+  const file=await files.upload('政策.png',image);
+  assert.equal(new FileStore(dir).get(file.id).format,'png');assert.deepEqual(Buffer.from(files.document(file).bytes),image);
+  const pdf=Buffer.from('%PDF-1.7\n1 0 obj<</Type /Catalog>>endobj\n%%EOF');
+  const attached=await files.upload('政策.pdf',pdf);assert.equal(files.document(attached).mimeType,'application/pdf');
+  for(const [name,bytes] of [['伪装.png',pdf],['伪装.jpg',image],['动态.png',Buffer.concat([image,Buffer.from('acTL')])],['加密.pdf',Buffer.from('%PDF-1.7\n/Encrypt 1 0 R\n%%EOF')]] as const)await assert.rejects(()=>files.upload(name,bytes),ProviderError);
+  const huge=Buffer.from(image);huge.writeUInt32BE(8193,16);assert.throws(()=>documentInput('超大.png','png',huge),/尺寸/);
+  writeFileSync(join(dir,file.id+'.bin'),'tampered');assert.throws(()=>files.document(file),/完整性/);
+ }finally{cleanup();}
+});
+test('document tool reads only attached bytes and preserves partial recognition and uncertain prices',async()=>{
+ const {files,cleanup}=setup();let reads=0;try{
+  const image=PNG.sync.write(new PNG({width:2,height:2})),file=await files.upload('政策.png',image);
+  const provider:LLMProvider={async complete(){throw new Error('not called');},async readDocument(document){reads++;assert.deepEqual(Buffer.from(document.bytes),image);return {text:'월 [无法辨认]원',coverage:'partial',uncertain:['月费金额模糊'],notes:'仅上半部分可辨认'};}};
+  const reader=new ToolRegistry(files,provider).tools.find(t=>t.name==='document.read')!;
+  await assert.rejects(()=>reader.execute({fileId:file.id},{attachments:[]}),/已附加/);assert.equal(reads,0);
+  const output=await reader.execute({fileId:file.id},{attachments:[file]}) as {text:string;coverage:string;uncertain:string[];sha256:string};
+  assert.equal(output.coverage,'partial');assert.equal(output.text,'월 [无法辨认]원');assert.deepEqual(output.uncertain,['月费金额模糊']);assert.equal(output.sha256,file.sha256);assert.equal(reads,1);
+  assert.ok(!new ToolRegistry(files,{async complete(){return '';}}).tools.some(t=>t.name==='document.read'));
+  const unreadable=new ToolRegistry(files,{async complete(){return '';},async readDocument(){return {text:'',coverage:'unreadable',uncertain:[],notes:'不可读'};}}).tools.find(t=>t.name==='document.read')!;
+  await assert.rejects(()=>unreadable.execute({fileId:file.id},{attachments:[file]}),/无法辨认/);
+ }finally{cleanup();}
+});
+test('Responses sends actual image/PDF content securely and rejects unreadable recognition',async()=>{
+ const mock=new MockAgent();mock.disableNetConnect();const pool=mock.get('https://api.openai.com');
+ const image=PNG.sync.write(new PNG({width:2,height:2})),pdf=Buffer.from('%PDF-1.7\n%%EOF');
+ for(const document of [documentInput('政策.png','png',image),documentInput('政策.pdf','pdf',pdf)]){
+  pool.intercept({path:'/v1/responses',method:'POST'}).reply(options=>{
+   assert.equal(new Headers(options.headers).get('authorization'),'Bearer test-placeholder');const body=JSON.parse(String(options.body));
+   assert.equal(body.store,false);assert.equal(body.model,'gpt-6-luna');assert.equal(body.text.format.type,'json_schema');
+   const content=body.input[1].content;assert.equal(content[0].type,'input_text');
+   const part=content[1];if(document.mimeType==='application/pdf'){assert.equal(part.type,'input_file');assert.equal(part.filename,'政策.pdf');assert.equal(part.file_data,`data:application/pdf;base64,${pdf.toString('base64')}`);}else{assert.equal(part.type,'input_image');assert.equal(part.detail,'high');assert.equal(part.image_url,`data:image/png;base64,${image.toString('base64')}`);}
+   return {statusCode:200,data:JSON.stringify({status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify({text:'월 33,000원',coverage:'complete',uncertain:[],notes:'一页'})}]}]})};
+  });
+ }
+ pool.intercept({path:'/v1/responses',method:'POST'}).reply(200,{status:'completed',output:[{type:'message',content:[{type:'output_text',text:JSON.stringify({text:'',coverage:'unreadable',uncertain:[],notes:'无法辨认'})}]}]});
+ try{
+  const provider=new OpenAIResponsesProvider({baseUrl:'https://api.openai.com/v1',model:'gpt-6-luna',apiKey:'test-placeholder',maxTokens:4096,timeoutMs:2000},mock);
+  assert.match((await provider.readDocument(documentInput('政策.png','png',image))).text,/33,000/);
+  assert.match((await provider.readDocument(documentInput('政策.pdf','pdf',pdf))).text,/33,000/);
+  await assert.rejects(()=>provider.readDocument(documentInput('政策.png','png',image)),/无法辨认/);mock.assertNoPendingInterceptors();
+ }finally{await mock.close();}
+});
+test('runtime records actual document read before translation and blocks unread images',async()=>{
+ const {files,cleanup}=setup();try{
+  const file=await files.upload('政策.png',PNG.sync.write(new PNG({width:2,height:2})));
+  for(const shouldRead of [true,false]){
+   const store=new TaskStore(':memory:');let reads=0;
+   const responses=[plan(),...(shouldRead?[toolCall('document.read',{fileId:file.id})]:[]),result('每月33,000韩元。'),'汇总：每月33,000韩元。'];
+   const provider:LLMProvider={async complete(request){const answer=responses.shift()!;if(shouldRead&&answer.includes('每月')&&request.jsonSchema)assert.equal(JSON.parse(request.user).toolsResults[0].output.text,'월 33,000원');return answer;},async readDocument(){reads++;return {text:'월 33,000원',coverage:'complete',uncertain:[],notes:'仅所附截图'};}};
+   const runtime=new AgentRuntime(store,provider,{files}),task=runtime.submit('翻译政策',undefined,[file.id]);await settle(runtime);
+   assert.equal(store.get(task.id)?.status,shouldRead?'completed':'failed');assert.equal(reads,shouldRead?1:0);
+   if(shouldRead){assert.equal(store.get(task.id)?.steps?.[0].toolCalls?.[0].name,'document.read');assert.equal(store.get(task.id)?.steps?.[0].toolCalls?.[0].status,'completed');}else assert.equal(store.get(task.id)?.result,undefined);
+   store.close();
+  }
  }finally{cleanup();}
 });
 test('CSV range aggregation uses exact decimal arithmetic, blanks and rejects text/header values',async()=>{

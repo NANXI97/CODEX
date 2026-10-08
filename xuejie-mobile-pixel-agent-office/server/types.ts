@@ -16,7 +16,11 @@ export interface Task {
  result?: string; translation?: string; error?: string; question?: string; parentId?: string;
  steps?: TaskStep[]; scopeNote?: string; attachments?: FileAttachment[]; allowWeb?: boolean;
 }
-export interface FileAttachment {id: string; name: string; format: 'txt' | 'md' | 'csv' | 'xlsx'; size: number; sha256: string}
+export const documentFormats = ['pdf', 'png', 'jpg', 'jpeg', 'webp'] as const;
+export type DocumentFormat = typeof documentFormats[number];
+export interface FileAttachment {id: string; name: string; format: 'txt' | 'md' | 'csv' | 'xlsx' | DocumentFormat; size: number; sha256: string}
+export interface DocumentInput {name: string; mimeType: 'application/pdf' | 'image/png' | 'image/jpeg' | 'image/webp'; bytes: Uint8Array}
+export interface DocumentRecognition {text: string; coverage: 'complete' | 'partial' | 'unreadable'; uncertain: string[]; notes: string}
 export interface Citation {url: string; title: string}
 export interface WebSearchResult {text: string; citations: Citation[]; searchedAt: string}
 export interface ToolCallRecord {
@@ -28,8 +32,8 @@ export interface AgentContext {
  input: string; instruction: string; dependencies: Record<string, StepResult>; attachments?: FileAttachment[]; allowWeb?: boolean;
  onToolCall?: (record: ToolCallRecord) => void;
 }
-export interface LLMRequest {system: string; user: string; json?: boolean; jsonSchema?: {name: string; schema: Record<string, unknown>}}
-export interface LLMProvider {complete(request: LLMRequest): Promise<string>; searchWeb?(query: string): Promise<WebSearchResult>}
+export interface LLMRequest {system: string; user: string; json?: boolean; jsonSchema?: {name: string; schema: Record<string, unknown>}; documents?: readonly DocumentInput[]}
+export interface LLMProvider {complete(request: LLMRequest): Promise<string>; searchWeb?(query: string): Promise<WebSearchResult>; readDocument?(document: DocumentInput): Promise<DocumentRecognition>}
 export interface Tool {name: string; description: string; inputSchema: Record<string, unknown>; execute(input: unknown, context: ToolContext): Promise<unknown>}
 export interface Agent {id: AgentId; tools: readonly Tool[]}
 export interface SpecialistAgent extends Agent {id: SpecialistId; execute(context: AgentContext): Promise<StepResult>}

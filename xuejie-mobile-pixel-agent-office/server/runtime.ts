@@ -125,7 +125,7 @@ export class TaskExecutor {
    }
    if (steps.some(s => s.status !== 'completed')) throw new ProviderError('INVALID_PLAN', '计划无法继续调度，未返回完成结果。');
    for (const file of attachments) {
-    if (!steps.some(s => s.toolCalls?.some(call => call.status === 'completed' && ['file.read','spreadsheet.read','spreadsheet.aggregate'].includes(call.name) && (call.input as {fileId?:string})?.fileId === file.id))) throw new ProviderError('FILE_NOT_READ', '附加文件尚未实际读取，任务未返回成功结果。请缩小范围重试。');
+    if (!steps.some(s => s.toolCalls?.some(call => call.status === 'completed' && ['file.read','spreadsheet.read','spreadsheet.aggregate','document.read'].includes(call.name) && (call.input as {fileId?:string})?.fileId === file.id))) throw new ProviderError('FILE_NOT_READ', '附加文件尚未实际读取，任务未返回成功结果。请缩小范围重试。');
    }
    this.state('manager', 'WORKING', id);
    const result = await this.manager.summarize(input, steps, plan.scopeNote);

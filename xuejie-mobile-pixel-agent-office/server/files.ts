@@ -7,14 +7,15 @@ import readXlsxFile from 'read-excel-file/node';
 import {unzipSync, strFromU8} from 'fflate';
 import {ProviderError} from './provider';
 import {aggregateNumbers} from './calculation';
-import type {FileAttachment} from './types';
+import {documentFormats, type DocumentFormat, type FileAttachment} from './types';
+import {documentInput} from './documents';
 
 export const MAX_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_CELLS = 50000, MAX_ROWS = 10000, MAX_COLUMNS = 100;
 type Cell = string | number | boolean | null;
 export interface Sheet {name: string; rows: Cell[][]}
 const fail = (message: string): never => {throw new ProviderError('INVALID_FILE', message);};
-const attachmentSchema = z.object({id: z.string().uuid(), name: z.string(), format: z.enum(['txt', 'md', 'csv', 'xlsx']), size: z.number(), sha256: z.string().regex(/^[a-f0-9]{64}$/)});
+const attachmentSchema = z.object({id: z.string().uuid(), name: z.string(), format: z.enum(['txt', 'md', 'csv', 'xlsx', ...documentFormats]), size: z.number(), sha256: z.string().regex(/^[a-f0-9]{64}$/)});
 function text(bytes: Buffer) {
  try {const value = new TextDecoder('utf-8', {fatal: true}).decode(bytes); if (value.includes('\0')) return fail('文件必须是 UTF-8 文本。'); return value;} catch {return fail('文件必须是 UTF-8 文本。');}
 }
@@ -67,9 +68,11 @@ export class FileStore {
   if (!bytes.length || bytes.length > MAX_FILE_BYTES) return fail('文件须为非空且不超过 5 MB。');
   if (!name || name.length > 160 || /[\/\\\x00-\x1f]/.test(name) || name === '.' || name === '..') return fail('文件名无效。');
   const format = extname(name).slice(1).toLowerCase();
-  if (!['txt', 'md', 'csv', 'xlsx'].includes(format)) return fail('支持 TXT、Markdown、CSV 和 XLSX；暂不支持 PDF、图片或 XLS。');
+  if (!['txt', 'md', 'csv', 'xlsx', ...documentFormats].includes(format)) return fail('支持 TXT、Markdown、CSV、XLSX、PDF、PNG、JPEG 和静态 WEBP；暂不支持 XLS。');
   if (this.list().reduce((n, file) => n + file.size, 0) + bytes.length > 100 * 1024 * 1024 || this.list().length >= 100) return fail('本地附件存储已达上限（100 MB／100 文件）。');
-  if (format === 'csv' || format === 'xlsx') await parseSheets(bytes, format); else text(bytes);
+  if (format === 'csv' || format === 'xlsx') await parseSheets(bytes, format);
+  else if (documentFormats.includes(format as DocumentFormat)) documentInput(name, format as DocumentFormat, bytes);
+  else text(bytes);
   const file: FileAttachment = {id: randomUUID(), name, format: format as FileAttachment['format'], size: bytes.length, sha256: createHash('sha256').update(bytes).digest('hex')};
   const path = join(this.directory, file.id);
   try {writeFileSync(path + '.bin', bytes, {mode: 0o600, flag: 'wx'}); writeFileSync(path + '.json', JSON.stringify(file), {mode: 0o600, flag: 'wx'});}
@@ -89,13 +92,17 @@ export class FileStore {
   return bytes;
  }
  readText(file: FileAttachment, offset: number, length: number) {
-  if (!['txt', 'md'].includes(file.format)) return fail('表格请使用 spreadsheet 工具。');
+  if (!['txt', 'md'].includes(file.format)) return fail('表格请使用 spreadsheet 工具，图片或 PDF 请使用 document.read。');
   const content = text(this.bytes(file));
   return {fileId: file.id, name: file.name, sha256: file.sha256, offset, text: content.slice(offset, offset + length), totalCharacters: content.length, hasMore: offset + length < content.length};
  }
  async sheets(file: FileAttachment) {
   if (file.format !== 'csv' && file.format !== 'xlsx') return fail('该附件不是 CSV 或 XLSX。');
   return parseSheets(this.bytes(file), file.format);
+ }
+ document(file: FileAttachment) {
+  if (!documentFormats.includes(file.format as DocumentFormat)) return fail('该附件不是 PDF 或支持的图片。');
+  return documentInput(file.name, file.format as DocumentFormat, this.bytes(file));
  }
 }
 
