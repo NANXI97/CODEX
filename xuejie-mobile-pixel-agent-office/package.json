@@ -7,13 +7,17 @@
     "sprites": "node scripts/extract-sprites.mjs",
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && tsc -p server/tsconfig.json && vite build",
-    "test": "tsx --test src/office/navigation.test.ts server/runtime.test.ts server/orchestration.test.ts && node scripts/verify-sprites.mjs",
+    "test": "tsx --test src/office/navigation.test.ts server/runtime.test.ts server/orchestration.test.ts server/tools.test.ts && node scripts/verify-sprites.mjs",
     "server": "node --env-file-if-exists=.env --import tsx server/index.ts"
   },
   "dependencies": {
+    "cheerio": "1.2.0",
+    "csv-parse": "7.0.3",
     "express": "^5.2.1",
+    "fflate": "0.8.3",
     "react": "^19.0.0",
     "react-dom": "^19.0.0",
+    "read-excel-file": "9.3.12",
     "undici": "^8.11.2",
     "zod": "^4.6.5"
   },

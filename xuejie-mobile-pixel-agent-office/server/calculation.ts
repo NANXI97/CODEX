@@ -35,6 +35,14 @@ function format(value: Rational): string {
  const whole = rounded / scale, fraction = (rounded % scale).toString().padStart(6, '0').replace(/0+$/, '');
  return `${value.n < 0n && rounded ? '-' : ''}${whole}${fraction ? '.' + fraction : ''}`;
 }
+export function aggregateNumbers(values: string[], operation: 'sum' | 'average' | 'min' | 'max'): string {
+ if (!values.length) return invalid('所选范围没有可计算的数字。');
+ const numbers = values.map(parseNumber);
+ const total = numbers.reduce((a, b) => rational(a.n * b.d + b.n * a.d, a.d * b.d), rational(0n, 1n));
+ if (operation === 'sum') return format(total);
+ if (operation === 'average') return format(rational(total.n, total.d * BigInt(numbers.length)));
+ return format(numbers.reduce((a, b) => ((a.n * b.d < b.n * a.d) === (operation === 'min')) ? a : b));
+}
 // Bounded arithmetic, never eval or executable model-generated code.
 // Business operands must be quoted from the user or a completed direct dependency.
 export function calculate(specs: CalculationSpec[], sources: Record<string, string>): Calculation[] {
